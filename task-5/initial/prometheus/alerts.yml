@@ -1,0 +1,32 @@
+groups:
+  - name: batch-processing-alerts
+    rules:
+      - alert: SpringBatchJobFailuresDetected
+        expr: increase(spring_batch_failed_job_count_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: batch-processing
+        annotations:
+          summary: "Spring Batch job failure detected"
+          description: "The batch-processing application reported at least one failed job execution in the last 15 minutes."
+
+      - alert: SpringBatchJobExecutionTooSlow
+        expr: max_over_time(spring_batch_last_job_duration_ms[15m]) > 30000
+        for: 1m
+        labels:
+          severity: warning
+          service: batch-processing
+        annotations:
+          summary: "Spring Batch execution is slower than expected"
+          description: "The last observed Spring Batch execution took more than 30 seconds."
+
+      - alert: SpringBatchMetricsMissing
+        expr: time() - push_time_seconds{job="batch-processing"} > 600
+        for: 1m
+        labels:
+          severity: warning
+          service: batch-processing
+        annotations:
+          summary: "Spring Batch metrics are missing"
+          description: "Pushgateway has not received fresh batch metrics for more than 10 minutes."

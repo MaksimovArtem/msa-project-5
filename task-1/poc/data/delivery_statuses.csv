@@ -1,0 +1,7 @@
+order_id,delivery_status,delivery_cost
+1001,delivered,8.40
+1002,late,11.20
+1003,late,7.90
+1004,delivered,14.10
+1005,delivered,5.40
+1006,delivered,16.00

@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: analytics-clients-export
+  namespace: analytics-export
+spec:
+  schedule: "0 20 * * *"
+  timeZone: "Europe/Moscow"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: exporter
+              image: logistics-analytics-export:clients
+              imagePullPolicy: Never
+              volumeMounts:
+                - name: export-storage
+                  mountPath: /exports
+          volumes:
+            - name: export-storage
+              persistentVolumeClaim:
+                claimName: analytics-export-pvc
