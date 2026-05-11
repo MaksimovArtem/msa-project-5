@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   postgresdb:
     image: postgres
@@ -10,93 +8,141 @@ services:
       - POSTGRES_PASSWORD=$POSTGRESDB_ROOT_PASSWORD
       - POSTGRES_DB=$POSTGRESDB_DATABASE
     ports:
-      - $POSTGRESDB_LOCAL_PORT:$POSTGRESDB_DOCKER_PORT
+      - "5433:$POSTGRESDB_DOCKER_PORT"
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   elasticsearch:
-    image: 'docker.elastic.co/elasticsearch/elasticsearch:7.17.28'
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.28
     platform: linux/amd64
-    container_name: 'elasticsearch'
-    restart: 'unless-stopped'
+    container_name: elasticsearch
+    restart: unless-stopped
     ports:
-      - '9200:9200'
-      - '9300:9300'
+      - "9200:9200"
+      - "9300:9300"
     environment:
-      - 'discovery.type=single-node'
-      - 'xpack.security.enabled=false'
-      - 'ES_JAVA_OPTS=-Xms512m -Xmx512m'
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
     healthcheck:
-      test: 'curl -f http://localhost:9200 || exit 1'
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   logstash:
-    image: 'docker.elastic.co/logstash/logstash:7.17.28'
-    container_name: 'logstash'
-    restart: 'unless-stopped'
+    image: docker.elastic.co/logstash/logstash:7.17.28
+    container_name: logstash
+    restart: unless-stopped
     ports:
-      - '5044:5044'
+      - "5044:5044"
     volumes:
-      - './logstash/pipeline:/usr/share/logstash/pipeline/'
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
     depends_on:
-      - 'elasticsearch'
+      elasticsearch:
+        condition: service_healthy
     healthcheck:
-      test: 'curl -f http://localhost:9600 || exit 1'
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9600 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   kibana:
-    image: 'docker.elastic.co/kibana/kibana:7.17.28'
-    container_name: 'kibana'
-    restart: 'unless-stopped'
+    image: docker.elastic.co/kibana/kibana:7.17.28
+    container_name: kibana
+    restart: unless-stopped
     ports:
-      - '5601:5601'
+      - "5601:5601"
     environment:
-      - 'ELASTICSEARCH_HOSTS=http://elasticsearch:9200'
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
     depends_on:
-      - 'elasticsearch'
+      elasticsearch:
+        condition: service_healthy
     healthcheck:
-      test: 'curl -f http://localhost:5601 || exit 1'
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5601/api/status >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
 
   filebeat:
-    build: 'filebeat'
-    container_name: 'filebeat'
-    restart: 'unless-stopped'
+    build: ./filebeat
+    container_name: filebeat
+    restart: unless-stopped
     volumes:
-      - '/var/run/docker.sock:/var/run/docker.sock'
-      - '/var/lib/docker/containers:/usr/share/dockerlogs/data:ro'
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/usr/share/dockerlogs/data:ro
     depends_on:
-      - 'elasticsearch'
-      - 'logstash'
+      logstash:
+        condition: service_healthy
 
   prometheus:
-    image: 'prom/prometheus:v3.4.0'
-    container_name: 'prometheus'
-    restart: 'unless-stopped'
+    image: prom/prometheus:v3.4.0
+    container_name: prometheus
+    restart: unless-stopped
     volumes:
-      - './prometheus/prometheus.yml:/etc/prometheus/prometheus.yml'
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     ports:
-      - '9090:9090'
+      - "9090:9090"
     healthcheck:
-      test: [ "CMD", "nc", "-z", "localhost", "9090" ]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9090/-/healthy >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    container_name: pushgateway
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9091/-/healthy >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   grafana:
-    image: 'grafana/grafana:12.0.1'
-    container_name: 'grafana'
-    restart: 'unless-stopped'
+    image: grafana/grafana:12.0.1
+    container_name: grafana
+    restart: unless-stopped
     ports:
-      - '3000:3000'
+      - "3000:3000"
     environment:
-      - 'GF_USERS_ALLOW_SIGN_UP=false'
+      GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
-      - './grafana/provisioning:/etc/grafana/provisioning'
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
-      - 'prometheus'
+      prometheus:
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD", "nc", "-z", "localhost", "3000" ]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   app:
     depends_on:
-      - postgresdb
-      - filebeat1
-      - grafana
+      postgresdb:
+        condition: service_healthy
+      filebeat:
+        condition: service_started
+      grafana:
+        condition: service_healthy
+      pushgateway:
+        condition: service_healthy
     image: batch-processing
     build:
       context: .
       dockerfile: ./Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgresdb:5432/productsdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 123456
+      PUSHGATEWAY_URL: http://pushgateway:9091
     restart: no
